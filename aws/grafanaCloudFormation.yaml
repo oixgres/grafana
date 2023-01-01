@@ -1,0 +1,73 @@
+AWSTemplateFormatVersion: '2019-09-09'
+Description: 'Grafana CloudFormation Template for deployment and future releases of the grafana instance'
+
+Parameters:
+  AMI:
+    Description: 'AMI by default is free tier'
+    Type: AWS::EC2::Image::Id
+    Default: ami-0b5eea76982371e91
+
+  AZ:
+    Description: 'AZ will be by default us-east-1'
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: us-east-1a
+
+  Type:
+    Description: 'Instance Type by default is free tier'
+    Type: AWS::EC2::Instance::Id
+    Default: t2.micro
+
+  KeyPair:
+    NoEcho: True
+    Description: 'Keypair for access to the EC2 Instance'
+    Type: AWS::EC2::KeyPair::KeyName
+
+  SSHIP:
+    NoEcho: True
+    Description: 'IP to SSH access to the instance'
+    Type: String
+
+Resources:
+  GrafanaEC2SG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: 'Security Group for Grafana public access'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SSHIP
+      Tags:
+        - Key: name
+          Value: grafana_ec2_sg
+        - Key: project
+          Value: grafana
+
+  GrafanaEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref AMI
+      AvailabilityZone: !Ref AZ
+      InstanceType: !Ref Type
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          sudo-apt-get update -y
+          sudo apt-get install wget curl gnupg2 apt-transport-https software-properties-common -y
+          wget -q -O - https://packages.grafana.com/gpg.key | sudo apt-key add -
+          echo "deb https://packages.grafana.com/oss/deb stable main" | sudo tee -a /etc/apt/sources.list.d/grafana.list
+          sudo apt-get update -y
+          sudo apt-get install grafana -y
+          sudo systemctl enable grafana-server
+          ss -antpl | grep 3000
+          sudo apt-get install nginx -y
+
+      Tags:
+        - Key: name
+          Value: grafana_ec2_instance
+        - Key: project
+          Value: grafana
