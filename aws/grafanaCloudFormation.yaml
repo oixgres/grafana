@@ -69,7 +69,6 @@ Resources:
             apt-get install grafana -y
             systemctl start grafana-server
             systemctl enable grafana-server
-            ss -antpl | grep 3000
             apt-get install nginx -y
             instance=( $(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 | sed -e 's/\./-/g') )
             echo "server {
