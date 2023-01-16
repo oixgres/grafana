@@ -1,20 +1,20 @@
-AWSTemplateFormatVersion: '2019-09-09'
+AWSTemplateFormatVersion: '2010-09-09'
 Description: 'Grafana CloudFormation Template for deployment and future releases of the grafana instance'
 
 Parameters:
   AMI:
     Description: 'AMI by default is free tier'
     Type: AWS::EC2::Image::Id
-    Default: ami-0b5eea76982371e91
+    Default: ami-06878d265978313ca
 
   AZ:
     Description: 'AZ will be by default us-east-1'
     Type: AWS::EC2::AvailabilityZone::Name
     Default: us-east-1a
 
-  Type:
+  EC2InstanceType:
     Description: 'Instance Type by default is free tier'
-    Type: AWS::EC2::Instance::Id
+    Type: String
     Default: t2.micro
 
   KeyPair:
@@ -24,7 +24,7 @@ Parameters:
 
   SSHIP:
     NoEcho: True
-    Description: 'IP to SSH access to the instance'
+    Description: 'IP for SSH access to the instance'
     Type: String
 
 Resources:
@@ -33,6 +33,10 @@ Resources:
     Properties:
       GroupDescription: 'Security Group for Grafana public access'
       SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
@@ -52,19 +56,38 @@ Resources:
     Properties:
       ImageId: !Ref AMI
       AvailabilityZone: !Ref AZ
-      InstanceType: !Ref Type
+      InstanceType: !Ref EC2InstanceType
       UserData:
-        Fn::Base64: !Sub |
-          #!/bin/bash
-          sudo-apt-get update -y
-          sudo apt-get install wget curl gnupg2 apt-transport-https software-properties-common -y
-          wget -q -O - https://packages.grafana.com/gpg.key | sudo apt-key add -
-          echo "deb https://packages.grafana.com/oss/deb stable main" | sudo tee -a /etc/apt/sources.list.d/grafana.list
-          sudo apt-get update -y
-          sudo apt-get install grafana -y
-          sudo systemctl enable grafana-server
-          ss -antpl | grep 3000
-          sudo apt-get install nginx -y
+        Fn::Base64: 
+          !Sub |
+            #!/bin/bash
+            apt-get update -y
+            apt-get install wget curl gnupg2 apt-transport-https software-properties-common -y
+            wget -q -O - https://packages.grafana.com/gpg.key |  apt-key add -
+            echo "deb https://packages.grafana.com/oss/deb stable main" |  tee -a /etc/apt/sources.list.d/grafana.list
+            apt-get update -y
+            apt-get install grafana -y
+            systemctl start grafana-server
+            systemctl enable grafana-server
+            ss -antpl | grep 3000
+            apt-get install nginx -y
+            instance=( $(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 | sed -e 's/\./-/g') )
+            echo "server {
+                    server_name ec2-$instance.compute-1.amazonaws.com;
+                    listen 80 ;
+                    access_log /var/log/nginx/grafana.log;
+
+
+                location / {
+                            proxy_pass http://localhost:3000;
+                            proxy_set_header Host \$http_host;
+                            proxy_set_header X-Forwarded-Host \$host:\$server_port;
+                            proxy_set_header X-Forwarded-Server \$host;
+                            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                    }
+            }" > /etc/nginx/conf.d/grafana.conf
+            sed -i 's/# server_names_hash_bucket_size 64;/server_names_hash_bucket_size 128;/g' /etc/nginx/nginx.conf
+            systemctl restart nginx
 
       Tags:
         - Key: name
